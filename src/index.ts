@@ -6,7 +6,32 @@ export {
   captureSegiException,
   captureSegiMessage,
   flushNativeCrashes,
+  flushSegiRetryQueue,
+  addSegiBreadcrumb,
 } from './client';
+
+export {
+  // global scope
+  setSegiUser,
+  getSegiUser,
+  setSegiTag,
+  setSegiTags,
+  setSegiExtra,
+  setSegiExtras,
+  setSegiContext,
+  configureSegiScope,
+  clearSegiScope,
+  getSegiScope,
+  // breadcrumbs
+  setSegiMaxBreadcrumbs,
+  setSegiBeforeBreadcrumb,
+  addSegiNavigationBreadcrumb,
+  getSegiBreadcrumbs,
+  clearSegiBreadcrumbs,
+  type SegiScopeSnapshot,
+} from './scope';
+
+export { buildSegiContexts } from './context';
 
 export {
   isNativeCrashTrackingAvailable,
@@ -26,8 +51,12 @@ export {
 
 export type {
   SegiConfig,
+  SegiAutoBreadcrumbOptions,
   SegiEventContext,
   SegiLevel,
   SegiUser,
+  SegiBreadcrumb,
+  SegiContexts,
   SegiBeforeSendFn,
+  SegiBeforeBreadcrumbFn,
 } from './types';

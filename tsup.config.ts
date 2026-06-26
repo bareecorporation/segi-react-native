@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'error-boundary': 'src/error-boundary.tsx',
+    'touch-boundary': 'src/touch-boundary.tsx',
   },
   format: ['esm', 'cjs'],
   dts: true,

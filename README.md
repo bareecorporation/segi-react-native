@@ -21,6 +21,22 @@ native module that captures **iOS and Android native crashes** (not just JS erro
 Native crashes can't be sent during the crash itself, so they are **persisted to disk
 and replayed to Segi on the next app launch**.
 
+## Beyond crashes (Sentry-parity, since 0.5.0)
+
+Every event is automatically enriched the way Sentry's RN SDK enriches its events:
+
+| Feature | What it does |
+|---|---|
+| **Breadcrumbs** | A trail attached to each event. Automatic: `console.*`, `fetch` + `XMLHttpRequest` (method/url/status/duration), app foreground/background. Manual: `addSegiBreadcrumb`, `addSegiNavigationBreadcrumb`. Ring-buffered (`maxBreadcrumbs`, default 50), filterable via `setSegiBeforeBreadcrumb`. |
+| **Global scope** | `setSegiUser` / `setSegiTag(s)` / `setSegiExtra(s)` / `setSegiContext` persist across all events — set once, attached everywhere. |
+| **Device / OS / app context** | `contexts.device/os/app/runtime` auto-built from RN core (model, OS version, screen, Hermes/JSC, simulator flag) — no extra deps. |
+| **Sampling** | `sampleRate` (0..1) probabilistically drops events. Fatal crashes always bypass it. |
+| **Dedup** | Identical consecutive events inside `dedupeWindowMs` (default 2s) are suppressed. |
+| **Offline retry** | Events that fail to send are queued and retried (`flushSegiRetryQueue`, also auto-flushed after the next success). |
+| **UI taps** | `SegiTouchEventBoundary` records a `ui.tap` breadcrumb per touch. |
+| **`attachStacktrace`** | Adds a synthetic stack to `captureSegiMessage` events. |
+| **PII scrubbing** | Runs over the whole envelope — breadcrumbs and contexts included. |
+
 ### Coverage & limitations
 
 Captured (in-process handlers):
@@ -127,9 +143,47 @@ captureSegiMessage('coupon applied without discount', { level: 'warning' });
 | `flushNativeCrashes()` | Manually replay persisted native crashes. Returns the count. |
 | `startAppHangWatchdog({thresholdMs?})` | Detect main-thread hangs / ANRs. |
 | `stopAppHangWatchdog()` | Stop the main-thread watchdog. |
+| `setSegiUser(user)` | Attach a user to all events (`null` clears). |
+| `setSegiTag(k,v)` / `setSegiTags(obj)` | Global tags. |
+| `setSegiExtra(k,v)` / `setSegiExtras(obj)` | Global extras. |
+| `setSegiContext(name, obj)` | Named context group (`null` removes). |
+| `configureSegiScope(update)` / `clearSegiScope()` | Bulk set / reset scope. |
+| `addSegiBreadcrumb(b)` | Record a breadcrumb. |
+| `addSegiNavigationBreadcrumb(from, to)` | Navigation breadcrumb helper. |
+| `setSegiBeforeBreadcrumb(fn)` | Transform/drop breadcrumbs. |
+| `setSegiMaxBreadcrumbs(n)` | Ring-buffer size. |
+| `flushSegiRetryQueue()` | Retry events that failed to send (e.g. on `AppState` 'active'). |
+| `setSegiBeforeSend(fn)` | Transform or drop every event before send. |
 | `isSegiEnabled()` / `logSegiStatus()` | Status helpers. |
 | `isNativeCrashTrackingAvailable()` | Whether the native module is linked. |
 | `SegiErrorBoundary` | React error boundary (`/error-boundary` entry). |
+| `SegiTouchEventBoundary` | UI-tap breadcrumbs (`/touch-boundary` entry). |
+
+### Scope, breadcrumbs & navigation
+
+```ts
+import {
+  setSegiUser, setSegiTag, setSegiContext,
+  addSegiBreadcrumb, addSegiNavigationBreadcrumb,
+} from '@bareecorporation/segi-react-native';
+
+// set once after login — attached to every later event
+setSegiUser({ id: userId, email });
+setSegiTag('plan', 'pro');
+setSegiContext('subscription', { id, status });
+
+// manual breadcrumbs (console / fetch / app-state are automatic)
+addSegiBreadcrumb({ category: 'checkout', message: 'coupon applied', data: { code } });
+
+// in your navigation listener
+addSegiNavigationBreadcrumb(prevRoute, nextRoute);
+```
+
+```tsx
+// record a ui.tap breadcrumb per touch
+import { SegiTouchEventBoundary } from '@bareecorporation/segi-react-native/touch-boundary';
+<SegiTouchEventBoundary><App /></SegiTouchEventBoundary>;
+```
 
 ### `SegiConfig`
 
@@ -143,6 +197,13 @@ captureSegiMessage('coupon applied without discount', { level: 'warning' });
 | `timeoutMs` | `3000` | Per-event network timeout. |
 | `debug` | `false` | `console.debug` diagnostics. |
 | `defaultTags` | — | Tags on every event. |
+| `sampleRate` | `1` | Probability (0..1) an event is sent. Fatal crashes bypass. |
+| `maxBreadcrumbs` | `50` | Breadcrumb ring-buffer size. |
+| `enableAutoBreadcrumbs` | `true` | `true`/`false` or `{ console?, network?, appState? }`. |
+| `attachStacktrace` | `false` | Synthetic stack on `captureSegiMessage`. |
+| `sendDefaultPii` | `false` | Include mildly-identifying device context. |
+| `dedupeWindowMs` | `2000` | Suppress identical consecutive events; `0` disables. |
+| `dist` | — | Distribution / build number. |
 | `enableNativeCrashTracking` | `true` | Install native handlers + replay prior crashes. |
 
 ## Privacy

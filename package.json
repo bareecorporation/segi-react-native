@@ -1,7 +1,7 @@
 {
   "name": "@bareecorporation/segi-react-native",
-  "version": "0.4.1",
-  "description": "Segi (extn.ai) error-tracking SDK for React Native — a thin ingest client with global crash handlers, PII scrubbing, beforeSend, and an ErrorBoundary.",
+  "version": "0.5.0",
+  "description": "Segi (extn.ai) error-tracking SDK for React Native — JS + native crash capture, ANR watchdog, breadcrumbs, global scope, device context, sampling, and offline retry.",
   "keywords": [
     "segi",
     "error-tracking",
@@ -27,6 +27,12 @@
       "react-native": "./dist/error-boundary.js",
       "import": "./dist/error-boundary.js",
       "require": "./dist/error-boundary.cjs"
+    },
+    "./touch-boundary": {
+      "types": "./dist/touch-boundary.d.ts",
+      "react-native": "./dist/touch-boundary.js",
+      "import": "./dist/touch-boundary.js",
+      "require": "./dist/touch-boundary.cjs"
     },
     "./package.json": "./package.json"
   },

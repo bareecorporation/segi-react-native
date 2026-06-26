@@ -14,7 +14,7 @@ native module that captures **iOS and Android native crashes** (not just JS erro
 | Unhandled promise rejections | ✅ | ✅ |
 | React render crashes (`SegiErrorBoundary`) | ✅ | ✅ |
 | Native uncaught exceptions | ✅ `NSException` | ✅ JVM `Thread` handler |
-| Native signals | ✅ `SIGSEGV/SIGABRT/…` | ⚠️ NDK signals out of scope |
+| Native signals (NDK / C++) | ✅ `SIGSEGV/SIGABRT/…` | ✅ `SIGSEGV/SIGABRT/…` (NDK sigaction) |
 | Manual `captureSegiException` / `captureSegiMessage` | ✅ | ✅ |
 
 Native crashes can't be sent during the crash itself, so they are **persisted to disk

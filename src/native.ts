@@ -20,8 +20,12 @@ interface NativeStoredCrash {
 interface SegiNativeModule {
   /** Install native uncaught-exception / signal handlers. Idempotent on the native side. */
   install(): void;
-  /** Return persisted crashes from previous launches and clear the store. */
-  getStoredCrashesAndClear(): Promise<NativeStoredCrash[]>;
+  /**
+   * Return persisted crashes from previous launches (and clear the store). The
+   * native side returns a JSON-encoded array string (TurboModule-friendly); older
+   * native builds may still return an array directly, so both are handled.
+   */
+  getStoredCrashesAndClear(): Promise<string | NativeStoredCrash[]>;
   /** Start the main-thread (ANR / app-hang) watchdog. */
   startAppHangWatchdog?(thresholdMs: number): void;
   /** Stop the main-thread watchdog. */
@@ -107,8 +111,10 @@ export async function getStoredNativeCrashes(): Promise<NativeStoredCrash[]> {
   const native = resolveNative();
   if (!native) return [];
   try {
-    const crashes = await native.getStoredCrashesAndClear();
-    return Array.isArray(crashes) ? crashes : [];
+    const raw = await native.getStoredCrashesAndClear();
+    // New native builds return a JSON string; older builds returned an array.
+    const crashes = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
+    return Array.isArray(crashes) ? (crashes as NativeStoredCrash[]) : [];
   } catch {
     return [];
   }

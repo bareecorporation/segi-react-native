@@ -15,5 +15,12 @@ Pod::Spec.new do |s|
   s.source_files = 'ios/**/*.{h,m,mm}'
   s.requires_arc = true
 
-  s.dependency 'React-Core'
+  # New Architecture: install_modules_dependencies wires up React-Core, the
+  # codegen-generated spec, RCT-Folly and the RCT_NEW_ARCH_ENABLED flag. Falls
+  # back to a plain React-Core dependency on the old architecture / older RN.
+  if respond_to?(:install_modules_dependencies, true)
+    install_modules_dependencies(s)
+  else
+    s.dependency 'React-Core'
+  end
 end

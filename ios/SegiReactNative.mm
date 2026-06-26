@@ -294,9 +294,11 @@ RCT_EXPORT_METHOD(install) {
   }
 }
 
+// Returns a JSON-encoded array string (see the codegen spec) so the marshalling
+// surface is identical on both architectures.
 RCT_EXPORT_METHOD(getStoredCrashesAndClear
                   : (RCTPromiseResolveBlock)resolve
-                  : (RCTPromiseRejectBlock)reject) {
+                  reject:(RCTPromiseRejectBlock)reject) {
   NSMutableArray *result = [NSMutableArray array];
   @try {
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -321,11 +323,13 @@ RCT_EXPORT_METHOD(getStoredCrashesAndClear
         [result addObject:parsed];
       }
     }
+
+    NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    NSString *jsonStr = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"[]";
+    resolve(jsonStr ?: @"[]");
   } @catch (NSException *e) {
     reject(@"segi_read_error", e.reason, nil);
-    return;
   }
-  resolve(result);
 }
 
 RCT_EXPORT_METHOD(startAppHangWatchdog : (double)thresholdMs) {
@@ -407,5 +411,14 @@ RCT_EXPORT_METHOD(stopAppHangWatchdog) {
     @"extra": @{@"thread": @"native"},
   };
 }
+
+// New Architecture: vend the codegen-generated TurboModule so the module
+// registers under bridgeless. No-op on the old architecture.
+#ifdef RCT_NEW_ARCH_ENABLED
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params {
+  return std::make_shared<facebook::react::NativeSegiReactNativeSpecJSI>(params);
+}
+#endif
 
 @end

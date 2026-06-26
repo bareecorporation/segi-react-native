@@ -22,7 +22,7 @@ import type {
 } from './types';
 
 const SDK_NAME = '@bareecorporation/segi-react-native';
-const SDK_VERSION = '0.5.1';
+const SDK_VERSION = '0.6.0';
 const DEFAULT_INGEST_URL = 'https://segiapi.extn.ai/api/ingest/events';
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_BREADCRUMBS = 50;
@@ -125,9 +125,11 @@ function setupNativeWhenReady(attempt = 0): void {
     debugLog('native crash tracking ready');
     return;
   }
-  // Retry on the next ticks (module registry warms up after the runtime boots).
-  if (attempt < 10) {
-    const delay = attempt < 3 ? 0 : 500;
+  // Retry with backoff — on the New Architecture (bridgeless) the TurboModule
+  // registry can take several seconds after boot to vend third-party modules,
+  // so keep trying for ~30s before giving up.
+  if (attempt < 40) {
+    const delay = attempt < 5 ? 100 : attempt < 20 ? 500 : 1000;
     setTimeout(() => setupNativeWhenReady(attempt + 1), delay);
   } else {
     debugLog('native crash module unavailable after retries (JS-only capture)');

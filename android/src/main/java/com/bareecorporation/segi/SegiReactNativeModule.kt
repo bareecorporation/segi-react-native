@@ -3,13 +3,12 @@ package com.bareecorporation.segi
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.WritableArray
-import com.facebook.react.bridge.WritableMap
+import com.facebook.react.module.annotations.ReactModule
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
@@ -20,6 +19,7 @@ import java.io.File
  * Native C/C++ (NDK) signal crashes are out of scope; the default uncaught-exception
  * handler covers the large majority of React Native Android crashes.
  */
+@ReactModule(name = SegiReactNativeModule.NAME)
 class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
@@ -146,10 +146,12 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
     file.writeText(json.toString())
   }
 
+  // Returns a JSON-encoded array string (see the codegen spec) so the marshalling
+  // surface is identical across both architectures.
   @ReactMethod
   fun getStoredCrashesAndClear(promise: Promise) {
     try {
-      val result: WritableArray = Arguments.createArray()
+      val result = JSONArray()
       // .json = JVM crashes, .crash = NDK (SEGI1 text format).
       val files = crashDir().listFiles { f ->
         f.name.endsWith(".json") || f.name.endsWith(".crash")
@@ -157,47 +159,33 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
       // Oldest first.
       files.sortedBy { it.name }.forEach { file ->
         try {
-          val map = if (file.name.endsWith(".crash")) {
+          val obj = if (file.name.endsWith(".crash")) {
             parseNdkCrash(file.readText())
           } else {
             parseJvmCrash(file.readText())
           }
-          result.pushMap(map)
+          result.put(obj)
         } catch (t: Throwable) {
           Log.w(NAME, "failed to parse crash file ${file.name}", t)
         } finally {
           file.delete()
         }
       }
-      promise.resolve(result)
+      promise.resolve(result.toString())
     } catch (t: Throwable) {
       promise.reject("segi_read_error", t.message, t)
     }
   }
 
-  private fun parseJvmCrash(text: String): WritableMap {
+  private fun parseJvmCrash(text: String): JSONObject {
     val obj = JSONObject(text)
-    return Arguments.createMap().apply {
-      putString("platform", obj.optString("platform", "native-android"))
-      putString("name", obj.optString("name", "NativeError"))
-      putString("message", obj.optString("message", ""))
-      putString("stack", obj.optString("stack", ""))
-      putDouble("timestamp", obj.optLong("timestamp", 0L).toDouble())
-      val extra = Arguments.createMap()
-      obj.optJSONObject("extra")?.let { ex ->
-        val keys = ex.keys()
-        while (keys.hasNext()) {
-          val k = keys.next()
-          when (val v = ex.get(k)) {
-            is Int -> extra.putInt(k, v)
-            is Long -> extra.putDouble(k, v.toDouble())
-            is Double -> extra.putDouble(k, v)
-            is Boolean -> extra.putBoolean(k, v)
-            else -> extra.putString(k, v.toString())
-          }
-        }
-      }
-      putMap("extra", extra)
+    return JSONObject().apply {
+      put("platform", obj.optString("platform", "native-android"))
+      put("name", obj.optString("name", "NativeError"))
+      put("message", obj.optString("message", ""))
+      put("stack", obj.optString("stack", ""))
+      put("timestamp", obj.optLong("timestamp", 0L))
+      put("extra", obj.optJSONObject("extra") ?: JSONObject())
     }
   }
 
@@ -208,7 +196,7 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
   //   timestamp=<epoch millis>
   //   ---STACK---
   //   <frames>
-  private fun parseNdkCrash(text: String): WritableMap {
+  private fun parseNdkCrash(text: String): JSONObject {
     var name = "SIGNAL"
     var message = ""
     var timestamp = 0L
@@ -223,14 +211,13 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
         line.startsWith("timestamp=") -> timestamp = line.substring(10).toLongOrNull() ?: 0L
       }
     }
-    return Arguments.createMap().apply {
-      putString("platform", "native-android")
-      putString("name", name)
-      putString("message", message)
-      putString("stack", "$name: $message\n$stack")
-      putDouble("timestamp", timestamp.toDouble())
-      val extra = Arguments.createMap().apply { putString("kind", "ndk-signal") }
-      putMap("extra", extra)
+    return JSONObject().apply {
+      put("platform", "native-android")
+      put("name", name)
+      put("message", message)
+      put("stack", "$name: $message\n$stack")
+      put("timestamp", timestamp)
+      put("extra", JSONObject().apply { put("kind", "ndk-signal") })
     }
   }
 

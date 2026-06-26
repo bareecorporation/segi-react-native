@@ -1,6 +1,6 @@
 {
   "name": "@bareecorporation/segi-react-native",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Segi (extn.ai) error-tracking SDK for React Native — a thin ingest client with global crash handlers, PII scrubbing, beforeSend, and an ErrorBoundary.",
   "keywords": [
     "segi",

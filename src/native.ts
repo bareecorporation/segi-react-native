@@ -22,6 +22,10 @@ interface SegiNativeModule {
   install(): void;
   /** Return persisted crashes from previous launches and clear the store. */
   getStoredCrashesAndClear(): Promise<NativeStoredCrash[]>;
+  /** Start the main-thread (ANR / app-hang) watchdog. */
+  startAppHangWatchdog?(thresholdMs: number): void;
+  /** Stop the main-thread watchdog. */
+  stopAppHangWatchdog?(): void;
 }
 
 let _native: SegiNativeModule | null = null;
@@ -55,6 +59,33 @@ export function installNativeHandlers(): void {
     native.install();
   } catch {
     // never throw from install
+  }
+}
+
+/**
+ * Start the main-thread watchdog. If the UI/main thread stays unresponsive longer than
+ * `thresholdMs`, the native side captures the main thread stack and persists an
+ * `ApplicationNotResponding` record, replayed to Segi on next launch.
+ * No-op if the native module is unavailable.
+ */
+export function startAppHangWatchdog(thresholdMs = 5000): void {
+  const native = resolveNative();
+  if (!native?.startAppHangWatchdog) return;
+  try {
+    native.startAppHangWatchdog(thresholdMs);
+  } catch {
+    // never throw
+  }
+}
+
+/** Stop the main-thread watchdog (no-op if unavailable). */
+export function stopAppHangWatchdog(): void {
+  const native = resolveNative();
+  if (!native?.stopAppHangWatchdog) return;
+  try {
+    native.stopAppHangWatchdog();
+  } catch {
+    // never throw
   }
 }
 

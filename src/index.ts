@@ -12,6 +12,8 @@ export {
   isNativeCrashTrackingAvailable,
   installNativeHandlers,
   getStoredNativeCrashes,
+  startAppHangWatchdog,
+  stopAppHangWatchdog,
   type NativeStoredCrash,
 } from './native';
 

@@ -15,6 +15,7 @@ native module that captures **iOS and Android native crashes** (not just JS erro
 | React render crashes (`SegiErrorBoundary`) | ✅ | ✅ |
 | Native uncaught exceptions | ✅ `NSException` | ✅ JVM `Thread` handler |
 | Native signals (NDK / C++) | ✅ `SIGSEGV/SIGABRT/…` | ✅ `SIGSEGV/SIGABRT/…` (NDK sigaction) |
+| App hangs / ANR (main-thread) | ✅ watchdog (opt-in) | ✅ watchdog (opt-in) |
 | Manual `captureSegiException` / `captureSegiMessage` | ✅ | ✅ |
 
 Native crashes can't be sent during the crash itself, so they are **persisted to disk
@@ -37,8 +38,9 @@ Captured (in-process handlers):
 **Not capturable in-process** (no on-device crash reporter can catch these; out of scope):
 
 - OS terminations: iOS OOM/Jetsam, watchdog `0x8BADF00D`, `SIGKILL`; Android low-memory kills.
-- ANRs (Android) / main-thread hangs — these are not crashes; need a watchdog.
 - Crashes *before* `initSegi()` / module load runs (earliest app startup).
+- (App hangs / ANRs *are* covered now via the opt-in `startAppHangWatchdog`, but a hang
+  that the OS turns into a hard kill is still subject to the OS-termination limit above.)
 - Full source-level symbolication happens off-device: ship dSYM (iOS) / unstripped `.so`
   (Android) to symbolicate the frames the SDK records.
 
@@ -69,7 +71,16 @@ initSegi({
 });
 
 installSegiGlobalHandlers(); // JS uncaught errors + unhandled promise rejections
+
+// Optional: detect main-thread hangs / ANRs (reports the main thread stack).
+import { startAppHangWatchdog } from '@bareecorporation/segi-react-native';
+startAppHangWatchdog({ thresholdMs: 5000 });
 ```
+
+The watchdog pings the UI/main thread; if it stays unresponsive past `thresholdMs`
+(default 5000), it captures the **main thread stack** (Android `Looper`; iOS via mach
+`thread_suspend` + frame-pointer unwind) and records an `ApplicationNotResponding` event,
+replayed to Segi on the next launch.
 
 ### Wrap your tree with the error boundary
 
@@ -114,6 +125,8 @@ captureSegiMessage('coupon applied without discount', { level: 'warning' });
 | `captureSegiMessage(msg, ctx?)` | Report a message (default level `info`). |
 | `setSegiBeforeSend(fn)` | Transform or drop (`return null`) every event before send. |
 | `flushNativeCrashes()` | Manually replay persisted native crashes. Returns the count. |
+| `startAppHangWatchdog({thresholdMs?})` | Detect main-thread hangs / ANRs. |
+| `stopAppHangWatchdog()` | Stop the main-thread watchdog. |
 | `isSegiEnabled()` / `logSegiStatus()` | Status helpers. |
 | `isNativeCrashTrackingAvailable()` | Whether the native module is linked. |
 | `SegiErrorBoundary` | React error boundary (`/error-boundary` entry). |

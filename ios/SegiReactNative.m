@@ -8,6 +8,9 @@
 #import <fcntl.h>
 #import <unistd.h>
 #import <time.h>
+#import <dlfcn.h>
+#import <mach/mach.h>
+#import <pthread.h>
 
 // One crash = one file under <Caches>/segi-crashes/. Text format:
 //   SEGI1
@@ -33,6 +36,11 @@ static stack_t gSegiAltStack;
 static const int kSegiSignals[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP, SIGSYS};
 static const int kSegiSignalCount = (int)(sizeof(kSegiSignals) / sizeof(kSegiSignals[0]));
 static struct sigaction gPreviousActions[7];
+
+// App-hang (ANR) watchdog state.
+static volatile bool gWatchdogRunning = false;
+static thread_t gMainMachThread = MACH_PORT_NULL;
+static volatile int64_t gMainTick = 0;
 
 #pragma mark - Paths
 
@@ -157,6 +165,92 @@ static void SegiSignalHandler(int sig, siginfo_t *info, void *uap) {
   raise(sig);
 }
 
+#pragma mark - App-hang (ANR) watchdog
+
+// usleep() is undefined for >= 1s; use nanosleep for arbitrary millisecond waits.
+static void SegiSleepMs(long ms) {
+  struct timespec ts;
+  ts.tv_sec = ms / 1000;
+  ts.tv_nsec = (ms % 1000) * 1000000L;
+  nanosleep(&ts, NULL);
+}
+
+// Suspends the main thread, walks its frame-pointer chain, and writes an
+// ApplicationNotResponding record. Runs on the watchdog (background) thread.
+static void SegiWriteAppHang(long thresholdMs) {
+  if (gMainMachThread == MACH_PORT_NULL) return;
+  if (thread_suspend(gMainMachThread) != KERN_SUCCESS) return;
+
+  uintptr_t pcs[64];
+  int count = 0;
+
+#if defined(__arm64__)
+  arm_thread_state64_t state;
+  mach_msg_type_number_t scnt = ARM_THREAD_STATE64_COUNT;
+  if (thread_get_state(gMainMachThread, ARM_THREAD_STATE64, (thread_state_t)&state, &scnt) ==
+      KERN_SUCCESS) {
+    pcs[count++] = (uintptr_t)__darwin_arm_thread_state64_get_pc(state);
+    uintptr_t fp = (uintptr_t)__darwin_arm_thread_state64_get_fp(state);
+    while (fp && count < 64) {
+      uintptr_t *frame = (uintptr_t *)fp;
+      uintptr_t ret = frame[1];
+      uintptr_t nextFp = frame[0];
+      if (!ret) break;
+      pcs[count++] = ret;
+      if (nextFp <= fp) break;
+      fp = nextFp;
+    }
+  }
+#elif defined(__x86_64__)
+  x86_thread_state64_t state;
+  mach_msg_type_number_t scnt = x86_THREAD_STATE64_COUNT;
+  if (thread_get_state(gMainMachThread, x86_THREAD_STATE64, (thread_state_t)&state, &scnt) ==
+      KERN_SUCCESS) {
+    pcs[count++] = (uintptr_t)state.__rip;
+    uintptr_t fp = (uintptr_t)state.__rbp;
+    while (fp && count < 64) {
+      uintptr_t *frame = (uintptr_t *)fp;
+      uintptr_t ret = frame[1];
+      uintptr_t nextFp = frame[0];
+      if (!ret) break;
+      pcs[count++] = ret;
+      if (nextFp <= fp) break;
+      fp = nextFp;
+    }
+  }
+#endif
+
+  thread_resume(gMainMachThread);
+
+  @try {
+    long long ms = (long long)time(NULL) * 1000;
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"SEGI1\n"];
+    [out appendString:@"name=ApplicationNotResponding\n"];
+    [out appendFormat:@"message=Main thread unresponsive for >%ldms\n", thresholdMs];
+    [out appendFormat:@"timestamp=%lld\n", ms];
+    [out appendString:@"---STACK---\n"];
+    for (int i = 0; i < count; i++) {
+      Dl_info info;
+      if (dladdr((void *)pcs[i], &info) && info.dli_fbase) {
+        uintptr_t off = pcs[i] - (uintptr_t)info.dli_fbase;
+        [out appendFormat:@"  #%d pc 0x%lx %s", i, (unsigned long)off,
+                          info.dli_fname ? info.dli_fname : "?"];
+        if (info.dli_sname) {
+          [out appendFormat:@" (%s)", info.dli_sname];
+        }
+        [out appendString:@"\n"];
+      } else {
+        [out appendFormat:@"  #%d 0x%lx\n", i, (unsigned long)pcs[i]];
+      }
+    }
+    NSString *file = [SegiCrashDir()
+        stringByAppendingPathComponent:[NSString stringWithFormat:@"anr-%lld.crash", ms]];
+    [out writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  } @catch (__unused NSException *ignored) {
+  }
+}
+
 #pragma mark - Module
 
 @implementation SegiReactNative {
@@ -232,6 +326,49 @@ RCT_EXPORT_METHOD(getStoredCrashesAndClear
     return;
   }
   resolve(result);
+}
+
+RCT_EXPORT_METHOD(startAppHangWatchdog : (double)thresholdMs) {
+  if (gWatchdogRunning) {
+    return;
+  }
+  gWatchdogRunning = true;
+  SegiEnsureDir();
+
+  long threshold = (long)thresholdMs;
+  if (threshold < 1000) {
+    threshold = 1000;
+  }
+
+  // Capture the main thread's mach port from the main thread itself.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    gMainMachThread = mach_thread_self();
+  });
+
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
+    while (gWatchdogRunning) {
+      int64_t scheduled = gMainTick;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        gMainTick++;
+      });
+      SegiSleepMs(threshold);
+      if (!gWatchdogRunning) {
+        break;
+      }
+      if (gMainTick == scheduled && gMainMachThread != MACH_PORT_NULL) {
+        // Main thread did not run the ping within the window → app hang.
+        SegiWriteAppHang(threshold);
+        // Report each hang once: wait until the main thread recovers.
+        while (gMainTick == scheduled && gWatchdogRunning) {
+          SegiSleepMs(threshold);
+        }
+      }
+    }
+  });
+}
+
+RCT_EXPORT_METHOD(stopAppHangWatchdog) {
+  gWatchdogRunning = false;
 }
 
 + (NSDictionary *)parseCrash:(NSString *)content {

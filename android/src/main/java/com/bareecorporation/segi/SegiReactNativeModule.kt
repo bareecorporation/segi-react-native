@@ -1,5 +1,7 @@
 package com.bareecorporation.segi
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -23,6 +25,14 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
 
   @Volatile
   private var installed = false
+
+  @Volatile
+  private var watchdogThread: Thread? = null
+
+  @Volatile
+  private var mainTick: Long = 0L
+
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun getName(): String = NAME
 
@@ -61,6 +71,67 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
 
   /** Installs POSIX signal handlers in native code (implemented in segi_ndk.cpp). */
   private external fun installNdkSignalHandlers(crashDir: String)
+
+  @ReactMethod
+  fun startAppHangWatchdog(thresholdMs: Double) {
+    if (watchdogThread != null) return
+    val threshold = thresholdMs.toLong().coerceAtLeast(1000L)
+    val t = Thread {
+      while (!Thread.currentThread().isInterrupted) {
+        val scheduled = mainTick
+        mainHandler.post { mainTick++ } // runs on the main (UI) thread
+        try {
+          Thread.sleep(threshold)
+        } catch (e: InterruptedException) {
+          break
+        }
+        if (mainTick == scheduled) {
+          // Main thread did not process the ping within the window → ANR.
+          try {
+            persistAppHang(threshold, Looper.getMainLooper().thread.stackTrace)
+          } catch (e: Throwable) {
+            Log.w(NAME, "failed to persist ANR", e)
+          }
+          // Wait for the main thread to recover so we report each hang once.
+          while (mainTick == scheduled && !Thread.currentThread().isInterrupted) {
+            try {
+              Thread.sleep(threshold)
+            } catch (e: InterruptedException) {
+              break
+            }
+          }
+        }
+      }
+    }
+    t.isDaemon = true
+    t.name = "segi-anr-watchdog"
+    watchdogThread = t
+    t.start()
+  }
+
+  @ReactMethod
+  fun stopAppHangWatchdog() {
+    watchdogThread?.interrupt()
+    watchdogThread = null
+  }
+
+  private fun persistAppHang(thresholdMs: Long, mainStack: Array<StackTraceElement>) {
+    val stack = StringBuilder("ApplicationNotResponding: main thread blocked for >${thresholdMs}ms\n")
+    for (el in mainStack) stack.append("  at ").append(el.toString()).append('\n')
+    val json = JSONObject().apply {
+      put("platform", "native-android")
+      put("name", "ApplicationNotResponding")
+      put("message", "Main thread unresponsive for >${thresholdMs}ms")
+      put("stack", stack.toString())
+      put("timestamp", System.currentTimeMillis())
+      put("extra", JSONObject().apply {
+        put("kind", "anr")
+        put("durationMs", thresholdMs)
+        put("thread", "main")
+      })
+    }
+    File(crashDir(), "anr-${System.currentTimeMillis()}.json").writeText(json.toString())
+  }
 
   private fun persist(thread: Thread, throwable: Throwable) {
     val json = JSONObject().apply {
@@ -114,7 +185,17 @@ class SegiReactNativeModule(private val reactContext: ReactApplicationContext) :
       putDouble("timestamp", obj.optLong("timestamp", 0L).toDouble())
       val extra = Arguments.createMap()
       obj.optJSONObject("extra")?.let { ex ->
-        extra.putString("thread", ex.optString("thread", "unknown"))
+        val keys = ex.keys()
+        while (keys.hasNext()) {
+          val k = keys.next()
+          when (val v = ex.get(k)) {
+            is Int -> extra.putInt(k, v)
+            is Long -> extra.putDouble(k, v.toDouble())
+            is Double -> extra.putDouble(k, v)
+            is Boolean -> extra.putBoolean(k, v)
+            else -> extra.putString(k, v.toString())
+          }
+        }
       }
       putMap("extra", extra)
     }

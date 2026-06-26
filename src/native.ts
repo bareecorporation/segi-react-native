@@ -29,17 +29,30 @@ interface SegiNativeModule {
 }
 
 let _native: SegiNativeModule | null = null;
-let _resolved = false;
 
 function resolveNative(): SegiNativeModule | null {
-  if (_resolved) return _native;
-  _resolved = true;
+  // Only cache a *successful* resolution. The native module registry may not be
+  // ready when initSegi runs at module-eval time (especially on the New
+  // Architecture / bridgeless), so a null result must stay retryable instead of
+  // being memoized forever.
+  if (_native) return _native;
   try {
     // Guarded require — avoids a hard dependency on react-native.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const rn = require('react-native') as { NativeModules?: Record<string, unknown> };
-    const mod = rn?.NativeModules?.SegiReactNative as SegiNativeModule | undefined;
-    _native = mod ?? null;
+    const rn = require('react-native') as {
+      NativeModules?: Record<string, unknown>;
+      TurboModuleRegistry?: { get?: (name: string) => unknown };
+    };
+    // On the New Architecture (bridgeless), a legacy RCTBridgeModule is vended
+    // through the TurboModule interop, not always eagerly on `NativeModules`.
+    // Try the TurboModule registry first, then fall back to NativeModules so we
+    // work on both the old and new architectures.
+    const fromTM = rn?.TurboModuleRegistry?.get?.('SegiReactNative') as
+      | SegiNativeModule
+      | undefined
+      | null;
+    const fromNM = rn?.NativeModules?.SegiReactNative as SegiNativeModule | undefined;
+    _native = fromTM ?? fromNM ?? null;
   } catch {
     _native = null;
   }

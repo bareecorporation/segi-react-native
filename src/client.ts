@@ -2,6 +2,7 @@ import { scrubSegiPayload } from './scrub';
 import {
   getStoredNativeCrashes,
   installNativeHandlers,
+  isNativeCrashTrackingAvailable,
   type NativeStoredCrash,
 } from './native';
 import {
@@ -21,7 +22,7 @@ import type {
 } from './types';
 
 const SDK_NAME = '@bareecorporation/segi-react-native';
-const SDK_VERSION = '0.5.0';
+const SDK_VERSION = '0.5.1';
 const DEFAULT_INGEST_URL = 'https://segiapi.extn.ai/api/ingest/events';
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_BREADCRUMBS = 50;
@@ -107,9 +108,29 @@ export function initSegi(config: SegiConfig): void {
   installSegiAutoBreadcrumbs(config.enableAutoBreadcrumbs);
 
   // Native crash tracking: install handlers + replay crashes from a previous launch.
+  // The native module registry may not be ready at module-eval time (especially on
+  // the New Architecture), so retry briefly until it resolves.
   if (config.enableNativeCrashTracking !== false) {
+    setupNativeWhenReady();
+  }
+}
+
+let _nativeSetupDone = false;
+function setupNativeWhenReady(attempt = 0): void {
+  if (_nativeSetupDone) return;
+  if (isNativeCrashTrackingAvailable()) {
+    _nativeSetupDone = true;
     installNativeHandlers();
     void flushNativeCrashes();
+    debugLog('native crash tracking ready');
+    return;
+  }
+  // Retry on the next ticks (module registry warms up after the runtime boots).
+  if (attempt < 10) {
+    const delay = attempt < 3 ? 0 : 500;
+    setTimeout(() => setupNativeWhenReady(attempt + 1), delay);
+  } else {
+    debugLog('native crash module unavailable after retries (JS-only capture)');
   }
 }
 

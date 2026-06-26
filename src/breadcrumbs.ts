@@ -2,6 +2,7 @@
 // (fetch + XMLHttpRequest), and app foreground/background transitions. Each
 // instrument chains to the original implementation and is idempotent.
 import { addSegiBreadcrumb } from './scope';
+import { getRN } from './rn';
 import type { SegiAutoBreadcrumbOptions, SegiLevel } from './types';
 
 let _installed = false;
@@ -164,10 +165,9 @@ function recordHttp(
 // --- AppState ----------------------------------------------------------------
 function instrumentAppState(): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const rn = require('react-native') as {
+    const rn = getRN() as {
       AppState?: { addEventListener?: (t: string, cb: (s: string) => void) => void; currentState?: string };
-    };
+    } | null;
     const AppState = rn?.AppState;
     if (!AppState?.addEventListener) return;
     let last = AppState.currentState;

@@ -14,7 +14,10 @@ export default defineConfig({
   // React Native is neither node nor browser; keep the output environment-agnostic.
   platform: 'neutral',
   target: 'es2020',
-  external: ['react', 'react-native'],
+  // RN-resolved peers are kept external so Metro registers them as static dependencies
+  // at app-bundle time (a runtime require() string is not statically analyzable — see
+  // src/rn.ts / src/rejection-tracking.ts).
+  external: ['react', 'react-native', 'promise', /^promise\//],
   outExtension({ format }) {
     return { js: format === 'cjs' ? '.cjs' : '.js' };
   },

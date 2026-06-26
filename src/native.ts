@@ -1,7 +1,8 @@
 // Bridge to the native crash-capture module (iOS Objective-C / Android Kotlin).
 //
-// React Native is an optional peer dependency, so we resolve it defensively: the core
-// JS-only API keeps working even when `react-native` is absent (e.g. unit tests, web).
+// React Native is an optional peer dependency, so we resolve it defensively (via ./rn):
+// the core JS-only API keeps working even when `react-native` is absent (e.g. unit tests, web).
+import { getRN } from './rn';
 
 interface NativeStoredCrash {
   /** 'native-ios' | 'native-android' */
@@ -41,12 +42,13 @@ function resolveNative(): SegiNativeModule | null {
   // being memoized forever.
   if (_native) return _native;
   try {
-    // Guarded require — avoids a hard dependency on react-native.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const rn = require('react-native') as {
+    // Resolved via a static import (see ./rn) so Metro registers react-native as a
+    // dependency of this chunk; a runtime require() string is not statically analyzable
+    // and resolves to null under the New Architecture.
+    const rn = getRN() as {
       NativeModules?: Record<string, unknown>;
       TurboModuleRegistry?: { get?: (name: string) => unknown };
-    };
+    } | null;
     // On the New Architecture (bridgeless), a legacy RCTBridgeModule is vended
     // through the TurboModule interop, not always eagerly on `NativeModules`.
     // Try the TurboModule registry first, then fall back to NativeModules so we

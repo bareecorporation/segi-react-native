@@ -1,4 +1,5 @@
 import { captureSegiException } from './client';
+import { enableRejectionTracking } from './rejection-tracking';
 
 // Minimal ambient shape for React Native's global ErrorUtils (avoids a hard dep on RN types).
 type ErrorUtilsLike = {
@@ -58,36 +59,24 @@ export function installSegiGlobalHandlers(options: InstallHandlersOptions = {}):
 }
 
 function installRejectionTracking(g: Record<string, unknown>): void {
-  // Preferred: RN bundles the `promise` polyfill with a rejection tracker.
-  if (typeof require === 'function') {
-    try {
-      const tracking = require('promise/setimmediate/rejection-tracking') as {
-        enable: (opts: {
-          allRejections?: boolean;
-          onUnhandled?: (id: unknown, error: unknown) => void;
-          onHandled?: (id: unknown) => void;
-        }) => void;
-      };
-      tracking.enable({
-        allRejections: true,
-        onUnhandled: (_id, error) => {
-          try {
-            captureSegiException(error, {
-              level: 'error',
-              handled: false,
-              tags: { source: 'unhandledRejection' },
-            });
-          } catch {
-            // swallow
-          }
-        },
-        onHandled: () => {},
-      });
-      return;
-    } catch {
-      // fall through to the DOM-style listener
-    }
-  }
+  // Preferred: RN bundles the `promise` polyfill with a rejection tracker. Resolved via a
+  // static import (see ./rejection-tracking) so Metro registers the dependency.
+  const installed = enableRejectionTracking({
+    allRejections: true,
+    onUnhandled: (_id, error) => {
+      try {
+        captureSegiException(error, {
+          level: 'error',
+          handled: false,
+          tags: { source: 'unhandledRejection' },
+        });
+      } catch {
+        // swallow
+      }
+    },
+    onHandled: () => {},
+  });
+  if (installed) return;
 
   // Fallback: environments exposing the DOM `unhandledrejection` event.
   const addEventListener = g.addEventListener as

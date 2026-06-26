@@ -2,6 +2,7 @@
 // core only — no native module and no extra dependencies. `react-native` is resolved
 // defensively so the JS-only API keeps working when RN is absent.
 import type { SegiContexts } from './types';
+import { getRN } from './rn';
 
 interface RNLike {
   Platform?: {
@@ -14,17 +15,8 @@ interface RNLike {
   NativeModules?: Record<string, unknown>;
 };
 
-let _rn: RNLike | null | undefined;
-
 function rn(): RNLike | null {
-  if (_rn !== undefined) return _rn;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    _rn = require('react-native') as RNLike;
-  } catch {
-    _rn = null;
-  }
-  return _rn;
+  return getRN() as RNLike | null;
 }
 
 function detectRuntime(): string {

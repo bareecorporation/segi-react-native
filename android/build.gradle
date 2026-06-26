@@ -1,0 +1,38 @@
+buildscript {
+  ext.getExtOrDefault = { name, fallback ->
+    rootProject.ext.has(name) ? rootProject.ext.get(name) : fallback
+  }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+  namespace 'com.bareecorporation.segi'
+  compileSdkVersion getExtOrDefault('compileSdkVersion', 34) as int
+
+  defaultConfig {
+    minSdkVersion getExtOrDefault('minSdkVersion', 21) as int
+    targetSdkVersion getExtOrDefault('targetSdkVersion', 34) as int
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  // Resolved against the host app's React Native version (RN 0.71+ uses react-android).
+  implementation 'com.facebook.react:react-android'
+  implementation "org.jetbrains.kotlin:kotlin-stdlib"
+}

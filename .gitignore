@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+
+# Android
+android/build/
+android/.gradle/
+android/.cxx/
+*.iml
+
+# iOS
+ios/build/
+Pods/
+*.xcworkspace

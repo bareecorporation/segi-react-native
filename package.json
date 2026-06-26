@@ -1,0 +1,84 @@
+{
+  "name": "@bareecorporation/segi-react-native",
+  "version": "0.1.0",
+  "description": "Segi (extn.ai) error-tracking SDK for React Native — a thin ingest client with global crash handlers, PII scrubbing, beforeSend, and an ErrorBoundary.",
+  "keywords": [
+    "segi",
+    "error-tracking",
+    "react-native",
+    "crash-reporting",
+    "observability",
+    "extn"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "react-native": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./error-boundary": {
+      "types": "./dist/error-boundary.d.ts",
+      "react-native": "./dist/error-boundary.js",
+      "import": "./dist/error-boundary.js",
+      "require": "./dist/error-boundary.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "ios",
+    "android",
+    "*.podspec",
+    "react-native.config.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bareecorporation/segi-react-native.git"
+  },
+  "homepage": "https://github.com/bareecorporation/segi-react-native#readme",
+  "bugs": {
+    "url": "https://github.com/bareecorporation/segi-react-native/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

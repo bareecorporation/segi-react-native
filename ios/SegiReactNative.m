@@ -23,10 +23,16 @@ static NSString *const kSegiStackSep = @"---STACK---";
 static NSUncaughtExceptionHandler *gPreviousExceptionHandler = NULL;
 static char gCrashDirCPath[1024] = {0};
 static volatile sig_atomic_t gCrashCounter = 0;
+// Re-entrancy guard: a crash while handling a crash must not recurse forever.
+static volatile sig_atomic_t gHandlingCrash = 0;
+// Set after the NSException path writes a file, so the follow-up SIGABRT (from the
+// runtime calling abort()) doesn't record a duplicate.
+static volatile sig_atomic_t gExceptionWritten = 0;
+static stack_t gSegiAltStack;
 
-static const int kSegiSignals[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP};
+static const int kSegiSignals[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV, SIGTRAP, SIGSYS};
 static const int kSegiSignalCount = (int)(sizeof(kSegiSignals) / sizeof(kSegiSignals[0]));
-static struct sigaction gPreviousActions[6];
+static struct sigaction gPreviousActions[7];
 
 #pragma mark - Paths
 
@@ -70,6 +76,7 @@ static void SegiHandleException(NSException *exception) {
     NSString *file = [SegiCrashDir()
         stringByAppendingPathComponent:[NSString stringWithFormat:@"%lld.crash", ms]];
     [out writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    gExceptionWritten = 1;
   } @catch (__unused NSException *ignored) {
   }
 
@@ -98,11 +105,26 @@ static const char *SegiSignalName(int sig) {
     case SIGILL: return "SIGILL";
     case SIGSEGV: return "SIGSEGV";
     case SIGTRAP: return "SIGTRAP";
+    case SIGSYS: return "SIGSYS";
     default: return "SIGNAL";
   }
 }
 
 static void SegiSignalHandler(int sig, siginfo_t *info, void *uap) {
+  // Re-entrancy / duplicate guard. If the NSException path already wrote a file, the
+  // ensuing abort()/SIGABRT must not record a second crash for the same event.
+  if (gHandlingCrash || gExceptionWritten) {
+    for (int i = 0; i < kSegiSignalCount; i++) {
+      if (kSegiSignals[i] == sig) {
+        sigaction(sig, &gPreviousActions[i], NULL);
+        break;
+      }
+    }
+    raise(sig);
+    return;
+  }
+  gHandlingCrash = 1;
+
   // Build file path: <dir>/sig-<time>-<n>.crash
   char path[1200];
   long now = (long)time(NULL);
@@ -157,6 +179,16 @@ RCT_EXPORT_METHOD(install) {
 
   gPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
   NSSetUncaughtExceptionHandler(&SegiHandleException);
+
+  // Alternate signal stack so a stack-overflow SIGSEGV can still be handled
+  // (SA_ONSTACK is a no-op without an installed sigaltstack).
+  size_t altSize = MAX((size_t)SIGSTKSZ, (size_t)65536);
+  gSegiAltStack.ss_sp = malloc(altSize);
+  gSegiAltStack.ss_size = altSize;
+  gSegiAltStack.ss_flags = 0;
+  if (gSegiAltStack.ss_sp) {
+    sigaltstack(&gSegiAltStack, NULL);
+  }
 
   struct sigaction action;
   memset(&action, 0, sizeof(action));

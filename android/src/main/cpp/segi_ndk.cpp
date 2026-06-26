@@ -22,10 +22,11 @@
 
 static char g_crash_dir[1024] = {0};
 static int g_installed = 0;
+static volatile sig_atomic_t g_handling = 0;
 
-static const int kSignals[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGTRAP};
+static const int kSignals[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGTRAP, SIGSYS};
 static const int kSignalCount = (int)(sizeof(kSignals) / sizeof(kSignals[0]));
-static struct sigaction g_prev[6];
+static struct sigaction g_prev[7];
 static stack_t g_alt_stack;
 
 // ---- async-signal-safe writers -------------------------------------------------
@@ -85,6 +86,7 @@ static const char *sigName(int s) {
     case SIGFPE: return "SIGFPE";
     case SIGILL: return "SIGILL";
     case SIGTRAP: return "SIGTRAP";
+    case SIGSYS: return "SIGSYS";
     default: return "SIGNAL";
   }
 }
@@ -114,9 +116,27 @@ static size_t captureBacktrace(void **buffer, size_t max) {
 
 // ---- signal handler ------------------------------------------------------------
 
+static void restoreAndReraise(int sig) {
+  for (int i = 0; i < kSignalCount; i++) {
+    if (kSignals[i] == sig) {
+      sigaction(sig, &g_prev[i], NULL);
+      break;
+    }
+  }
+  raise(sig);
+}
+
 static void segiSignalHandler(int sig, siginfo_t *info, void *uc) {
   (void)info;
   (void)uc;
+
+  // Re-entrancy guard: a crash inside the handler must chain out, not recurse.
+  if (g_handling) {
+    restoreAndReraise(sig);
+    return;
+  }
+  g_handling = 1;
+
   if (g_crash_dir[0]) {
     long t = (long)time(NULL);
     char path[1200];
@@ -134,22 +154,36 @@ static void segiSignalHandler(int sig, siginfo_t *info, void *uc) {
       writeNum(fd, t);
       writeStr(fd, "000\n---STACK---\n");
 
+      // ndk-stack / addr2line friendly frames:
+      //   #NN pc <module-relative offset>  <lib path> (<symbol>+<sym offset>)
+      // The module-relative offset (pc - load base) is what addr2line needs against
+      // the unstripped .so; absolute runtime addresses alone are not symbolicatable.
       void *frames[SEGI_MAX_FRAMES];
       size_t n = captureBacktrace(frames, SEGI_MAX_FRAMES);
       for (size_t i = 0; i < n; i++) {
         Dl_info dlinfo;
         writeStr(fd, "  #");
+        if (i < 10) writeStr(fd, "0");
         writeNum(fd, (long)i);
-        writeStr(fd, " ");
-        if (dladdr(frames[i], &dlinfo) && dlinfo.dli_fname) {
-          writeStr(fd, dlinfo.dli_fname);
+        writeStr(fd, " pc ");
+        if (dladdr(frames[i], &dlinfo) && dlinfo.dli_fbase) {
+          uintptr_t offset = (uintptr_t)frames[i] - (uintptr_t)dlinfo.dli_fbase;
+          writeHex(fd, offset);
+          writeStr(fd, "  ");
+          writeStr(fd, dlinfo.dli_fname ? dlinfo.dli_fname : "<unknown>");
           if (dlinfo.dli_sname) {
-            writeStr(fd, " ");
+            writeStr(fd, " (");
             writeStr(fd, dlinfo.dli_sname);
+            if (dlinfo.dli_saddr) {
+              writeStr(fd, "+");
+              writeHex(fd, (uintptr_t)frames[i] - (uintptr_t)dlinfo.dli_saddr);
+            }
+            writeStr(fd, ")");
           }
-          writeStr(fd, " ");
+        } else {
+          writeHex(fd, (uintptr_t)frames[i]);
+          writeStr(fd, "  <unknown>");
         }
-        writeHex(fd, (uintptr_t)frames[i]);
         writeStr(fd, "\n");
       }
       close(fd);
@@ -157,13 +191,7 @@ static void segiSignalHandler(int sig, siginfo_t *info, void *uc) {
   }
 
   // Restore the previous disposition and re-raise so ART/Tombstone still records it.
-  for (int i = 0; i < kSignalCount; i++) {
-    if (kSignals[i] == sig) {
-      sigaction(sig, &g_prev[i], NULL);
-      break;
-    }
-  }
-  raise(sig);
+  restoreAndReraise(sig);
 }
 
 // ---- JNI entry -----------------------------------------------------------------

@@ -20,6 +20,28 @@ native module that captures **iOS and Android native crashes** (not just JS erro
 Native crashes can't be sent during the crash itself, so they are **persisted to disk
 and replayed to Segi on the next app launch**.
 
+### Coverage & limitations
+
+Captured (in-process handlers):
+
+- **iOS**: `NSException` (symbolicated `callStackSymbols`) + POSIX signals
+  `SIGSEGV/SIGABRT/SIGBUS/SIGFPE/SIGILL/SIGTRAP/SIGSYS`, on an alternate signal stack
+  so stack-overflow crashes are caught. NSException→`abort()` is de-duplicated.
+- **Android**: JVM uncaught exceptions (full Java stack) + NDK/C++ signals via
+  `sigaction` + `_Unwind_Backtrace`. Frames are written as
+  `#NN pc <module-offset> <lib.so> (<symbol>+<off>)` — symbolicate with
+  `ndk-stack`/`addr2line` against the unstripped `.so` (offsets are load-base-relative).
+- Both: re-entrancy guarded; previous handlers (e.g. Sentry) are chained and the signal
+  is re-raised so the OS tombstone / other reporters still fire.
+
+**Not capturable in-process** (no on-device crash reporter can catch these; out of scope):
+
+- OS terminations: iOS OOM/Jetsam, watchdog `0x8BADF00D`, `SIGKILL`; Android low-memory kills.
+- ANRs (Android) / main-thread hangs — these are not crashes; need a watchdog.
+- Crashes *before* `initSegi()` / module load runs (earliest app startup).
+- Full source-level symbolication happens off-device: ship dSYM (iOS) / unstripped `.so`
+  (Android) to symbolicate the frames the SDK records.
+
 ## Install
 
 ```sh

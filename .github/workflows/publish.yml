@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_UTILITY_RUNNER || 'ubicloud-standard-4-ubuntu-2404' }}
     permissions:
       contents: read
       packages: write

@@ -7,6 +7,14 @@ buildscript {
 apply plugin: 'com.android.library'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+def isNewArchitectureEnabled() {
+  return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
+if (isNewArchitectureEnabled()) {
+  apply plugin: "com.facebook.react"
+}
+
 android {
   namespace 'com.bareecorporation.segi'
   compileSdkVersion getExtOrDefault('compileSdkVersion', 34) as int
@@ -35,6 +43,14 @@ android {
 
   kotlinOptions {
     jvmTarget = '17'
+  }
+
+  sourceSets.main {
+    java {
+      if (isNewArchitectureEnabled()) {
+        srcDirs += "${buildDir}/generated/source/codegen/java"
+      }
+    }
   }
 }
 

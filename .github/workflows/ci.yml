@@ -7,10 +7,10 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ vars.LINUX_UTILITY_RUNNER || 'ubicloud-standard-4-ubuntu-2404' }}
+    runs-on: runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/region=ap-northeast-1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm

@@ -94,6 +94,23 @@ describe('segi parity features', () => {
     expect(lastBody(fetchMock).level).toBe('fatal');
   });
 
+  it('allows native crash replays to keep their native platform', async () => {
+    initSegi({ projectKey: 'k', dedupeWindowMs: 0 });
+
+    captureSegiException(new Error('native boom'), {
+      level: 'fatal',
+      handled: false,
+      platform: 'native-ios',
+      tags: { source: 'native-ios' },
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = lastBody(fetchMock);
+    expect(body.platform).toBe('native-ios');
+    expect(body.tags.source).toBe('native-ios');
+    expect(body.sdk.version).toBe('0.6.3');
+  });
+
   it('queues failed events and flushes them on retry', async () => {
     fetchMock.mockRejectedValueOnce(new Error('offline'));
     initSegi({ projectKey: 'k', dedupeWindowMs: 0 });

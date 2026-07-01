@@ -22,7 +22,7 @@ import type {
 } from './types';
 
 const SDK_NAME = '@bareecorporation/segi-react-native';
-const SDK_VERSION = '0.6.1';
+const SDK_VERSION = '0.6.3';
 const DEFAULT_INGEST_URL = 'https://segiapi.extn.ai/api/ingest/events';
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_BREADCRUMBS = 50;
@@ -146,6 +146,7 @@ function reportNativeCrash(crash: NativeStoredCrash): void {
   if (crash.stack) err.stack = crash.stack;
   captureSegiException(err, {
     level: 'fatal',
+    platform: crash.platform,
     handled: false,
     tags: { source: crash.platform },
     extra: { ...crash.extra, nativeTimestamp: crash.timestamp },
@@ -213,7 +214,7 @@ function buildEnvelope(
   const contexts = { ...buildSegiContexts(cfg.sendDefaultPii), ...scope.contexts };
 
   return {
-    platform: 'react-native',
+    platform: ctx.platform ?? 'react-native',
     runtime: detectRuntime(),
     environment: cfg.environment,
     release: cfg.release,

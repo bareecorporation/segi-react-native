@@ -68,6 +68,8 @@ export interface SegiUser {
 export interface SegiEventContext {
   /** Severity. Defaults: exceptions → `error`, messages → `info`. */
   level?: SegiLevel;
+  /** Event platform override. Native crash replays use `native-ios` / `native-android`. */
+  platform?: 'react-native' | 'native-ios' | 'native-android' | string;
   /** Per-event tags (merged over global + `defaultTags`). */
   tags?: Record<string, string>;
   /** Arbitrary structured context. PII-scrubbed before send. */

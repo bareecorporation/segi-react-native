@@ -18,6 +18,7 @@ if (isNewArchitectureEnabled()) {
 android {
   namespace 'com.bareecorporation.segi'
   compileSdkVersion getExtOrDefault('compileSdkVersion', 34) as int
+  ndkVersion getExtOrDefault('ndkVersion', '27.1.12297006') as String
 
   defaultConfig {
     minSdkVersion getExtOrDefault('minSdkVersion', 21) as int

@@ -108,7 +108,7 @@ describe('segi parity features', () => {
     const body = lastBody(fetchMock);
     expect(body.platform).toBe('native-ios');
     expect(body.tags.source).toBe('native-ios');
-    expect(body.sdk.version).toBe('0.6.4');
+    expect(body.sdk.version).toBe('0.6.5');
   });
 
   it('queues failed events and flushes them on retry', async () => {

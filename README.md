@@ -93,6 +93,17 @@ import { startAppHangWatchdog } from '@bareecorporation/segi-react-native';
 startAppHangWatchdog({ thresholdMs: 5000 });
 ```
 
+On Hermes, unhandled rejections use the runtime's native
+`HermesInternal.enablePromiseRejectionTracker`; JSC keeps the React Native promise
+polyfill fallback. `onCapturedError` can mirror the same global error to a second
+reporter without replacing Segi's handler:
+
+```ts
+installSegiGlobalHandlers({
+  onCapturedError: (error, details) => secondaryReporter(error, details),
+});
+```
+
 The watchdog pings the UI/main thread; if it stays unresponsive past `thresholdMs`
 (default 5000), it captures the **main thread stack** (Android `Looper`; iOS via mach
 `thread_suspend` + frame-pointer unwind) and records an `ApplicationNotResponding` event,

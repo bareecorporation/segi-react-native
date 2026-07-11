@@ -19,6 +19,20 @@ interface RejectionTrackingOptions {
  */
 export function enableRejectionTracking(opts: RejectionTrackingOptions): boolean {
   try {
+    const hermes = (globalThis as Record<string, unknown>).HermesInternal as
+      | {
+          hasPromise?: () => boolean;
+          enablePromiseRejectionTracker?: (options: RejectionTrackingOptions) => void;
+        }
+      | undefined;
+    if (
+      typeof hermes?.enablePromiseRejectionTracker === 'function' &&
+      (typeof hermes.hasPromise !== 'function' || hermes.hasPromise())
+    ) {
+      hermes.enablePromiseRejectionTracker(opts);
+      return true;
+    }
+
     const mod = RejectionTracking as unknown as {
       enable?: (o: RejectionTrackingOptions) => void;
       default?: { enable?: (o: RejectionTrackingOptions) => void };

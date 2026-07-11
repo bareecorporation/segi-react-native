@@ -12,9 +12,15 @@ export interface InstallHandlersOptions {
   handleUncaughtErrors?: boolean;
   /** Capture unhandled promise rejections (best-effort). Default `true`. */
   handlePromiseRejections?: boolean;
+  /** Observe errors captured by the global handlers (for mirroring to another reporter). */
+  onCapturedError?: (
+    error: unknown,
+    details: { kind: 'uncaughtError' | 'unhandledRejection'; isFatal: boolean },
+  ) => void;
 }
 
-let _installed = false;
+let _uncaughtErrorsInstalled = false;
+let _promiseRejectionsInstalled = false;
 
 /**
  * Install global crash handlers so uncaught errors and unhandled promise rejections
@@ -24,13 +30,10 @@ let _installed = false;
  * - Fatal crashes are reported at level `fatal`, others at `error`.
  */
 export function installSegiGlobalHandlers(options: InstallHandlersOptions = {}): void {
-  if (_installed) return;
-  _installed = true;
-
   const g = globalThis as Record<string, unknown>;
 
   // 1) Uncaught JS errors via ErrorUtils
-  if (options.handleUncaughtErrors !== false) {
+  if (options.handleUncaughtErrors !== false && !_uncaughtErrorsInstalled) {
     const EU = g.ErrorUtils as ErrorUtilsLike | undefined;
     if (EU && typeof EU.setGlobalHandler === 'function') {
       const previous =
@@ -45,20 +48,40 @@ export function installSegiGlobalHandlers(options: InstallHandlersOptions = {}):
         } catch {
           // never let reporting break the crash path
         }
+        safelyNotifyObserver(options, error, {
+          kind: 'uncaughtError',
+          isFatal: Boolean(isFatal),
+        });
         if (typeof previous === 'function') {
           previous(error, isFatal);
         }
       });
+      _uncaughtErrorsInstalled = true;
     }
   }
 
   // 2) Unhandled promise rejections (best-effort across RN versions)
-  if (options.handlePromiseRejections !== false) {
-    installRejectionTracking(g);
+  if (options.handlePromiseRejections !== false && !_promiseRejectionsInstalled) {
+    _promiseRejectionsInstalled = installRejectionTracking(g, options);
   }
 }
 
-function installRejectionTracking(g: Record<string, unknown>): void {
+function safelyNotifyObserver(
+  options: InstallHandlersOptions,
+  error: unknown,
+  details: { kind: 'uncaughtError' | 'unhandledRejection'; isFatal: boolean },
+): void {
+  try {
+    options.onCapturedError?.(error, details);
+  } catch {
+    // An observer must never break the app's crash path.
+  }
+}
+
+function installRejectionTracking(
+  g: Record<string, unknown>,
+  options: InstallHandlersOptions,
+): boolean {
   // Preferred: RN bundles the `promise` polyfill with a rejection tracker. Resolved via a
   // static import (see ./rejection-tracking) so Metro registers the dependency.
   const installed = enableRejectionTracking({
@@ -73,10 +96,14 @@ function installRejectionTracking(g: Record<string, unknown>): void {
       } catch {
         // swallow
       }
+      safelyNotifyObserver(options, error, {
+        kind: 'unhandledRejection',
+        isFatal: false,
+      });
     },
     onHandled: () => {},
   });
-  if (installed) return;
+  if (installed) return true;
 
   // Fallback: environments exposing the DOM `unhandledrejection` event.
   const addEventListener = g.addEventListener as
@@ -94,9 +121,15 @@ function installRejectionTracking(g: Record<string, unknown>): void {
         } catch {
           // swallow
         }
+        safelyNotifyObserver(options, e?.reason ?? e, {
+          kind: 'unhandledRejection',
+          isFatal: false,
+        });
       });
+      return true;
     } catch {
       // give up silently — reporting must never throw at install time
     }
   }
+  return false;
 }
